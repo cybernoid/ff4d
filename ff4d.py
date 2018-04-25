@@ -761,11 +761,8 @@ access_token = False
 cache_time = 120 # Seconds
 write_cache = 4194304 # Bytes
 use_cache = False
-allow_other = False
-allow_root = False
 debug = False
 debug_raw = False
-debug_fuse = False
 if __name__ == '__main__':
   print '********************************************************'
   print '* FUSE Filesystem 4 Dropbox                            *'
@@ -792,18 +789,48 @@ if __name__ == '__main__':
   parser.add_argument('-ct', '--cache-time', help='Cache Dropbox data for X seconds (120 by default)', default=120, type=int)
   parser.add_argument('-wc', '--write-cache', help='Cache X bytes (chunk size) before uploading to Dropbox (4 MB by default)', default=4194304, type=int)
   parser.add_argument('-bg', '--background', help='Pushes FF4D into background', action='store_false', default=True)
+  parser.add_argument('-c', '--config', help="Config file to use; defaults to ff4d.config in script's directory when called manually or to /etc/ff4d.config via mount/fstab")
+  parser.add_argument('-o', '--fuse-opts', help='Options passed through to fuse')
   
   parser.add_argument('mountpoint', help='Mount point for Dropbox source')
+
+  # throw out the first field (fs_spec) given in fstab
+  cleaned_args = []
+  from_fstab = False
+  config_given = False
+  for arg in sys.argv:
+    if (arg!="" and arg!="none" and arg!="dropbox"):
+      cleaned_args.append(arg)
+    else:
+      from_fstab = True
+  sys.argv = cleaned_args
+
+  # actually parse the arguments
   args = parser.parse_args()
 
   # Set variables supplied by commandline.
   cache_time = args.cache_time
   write_cache = args.write_cache
-  allow_other = args.allow_other
-  allow_root = args.allow_root
   debug = args.debug
   debug_raw = args.debug_raw
-  debug_fuse = args.debug_fuse
+
+  # Set parameters to pass to FUSE; the -o arguments (e.g. from fstab) take
+  # precedence over legacy command line arguments
+  fuse_opt_dict = {
+      "allow_other":args.allow_other,
+      "allow_root":args.allow_root,
+      "debug_fuse":args.debug_fuse,
+      "sync_read":True,
+      "foreground":False if from_fstab else args.background
+  }
+  if (args.fuse_opts):
+    for opt in args.fuse_opts.split(','):
+        if (opt.find('=') == -1):
+          fuse_opt_dict[opt] = True
+        else:
+          kv = opt.split('=')
+          fuse_opt_dict[kv[0]] = kv[1]
+  if debug == True: appLog('debug', 'fuse args: ' + str(fuse_opt_dict))
 
   # Check ranges and values of given arguments.
   if cache_time < 0:
@@ -820,9 +847,13 @@ if __name__ == '__main__':
     sys.exit(-1)
 
   # Check for an existing configuration file.
+  if (not args.config):
+      if (from_fstab):
+        args.config="/etc/ff4d.config"
+      else:
+        args.config=os.path.dirname(sys.argv[0])+"/ff4d.config"
   try:
-    scriptpath = os.path.dirname(sys.argv[0])
-    f = open(scriptpath + '/ff4d.config', 'r')
+    f = open(args.config, 'r')
     access_token = f.readline()
     if debug == True: appLog('debug', 'Got accesstoken from configuration file: ' + str(access_token))
   except Exception, e:
@@ -878,8 +909,9 @@ if __name__ == '__main__':
   print "Space available: " + str(space_usage['allocation']['allocated']/1024/1024/1024) + " GB"
   print ""
   print "Starting FUSE..."
+
   try:
-    FUSE(Dropbox(ar), mountpoint, foreground=args.background, debug=debug_fuse, sync_read=True, allow_other=allow_other, allow_root=allow_root)
+    FUSE(Dropbox(ar), mountpoint, **fuse_opt_dict)
   except Exception, e:
     appLog('error', 'Failed to start FUSE...', traceback.format_exc())
     sys.exit(-1)
