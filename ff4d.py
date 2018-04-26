@@ -504,7 +504,6 @@ class Dropbox(Operations):
     # Check wether data exists for item.
     item = self.getDropboxMetadata(path)
     if item == False:
-      #raise FuseOSError(ENOENT)
       raise FuseOSError(ENOENT)
 
     # Handle last modified times.
@@ -548,6 +547,20 @@ class Dropbox(Operations):
   def fsync(self, path, fdatasync, fh):
     path = path.encode('utf-8')
     if debug == True: appLog('debug', 'Called: fsync() - Path: ' + path)
+
+  def chmod(self, path, mode):
+    path = path.encode('utf-8')
+    if debug == True: appLog('debug', 'Called: chmod() - Path: ' + path)
+    if not self.getDropboxMetadata(path):
+      raise FuseOSError(ENOENT)
+    return 0
+
+  def chown(self, path, uid, gid):
+    path = path.encode('utf-8')
+    if debug == True: appLog('debug', 'Called: chown() - Path: ' + path)
+    if not self.getDropboxMetadata(path):
+      raise FuseOSError(ENOENT)
+    return 0
 
 ########################
 # Class: API transport #
